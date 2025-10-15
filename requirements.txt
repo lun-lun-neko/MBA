@@ -1,0 +1,32 @@
+# --extra-index-url https://download.pytorch.org/whl/cpu
+# torch==2.8.0+cpu
+# torchaudio==2.8.0+cpu
+# torchvision==0.23.0+cpu
+# tensorflow-cpu==2.17.0
+# pillow==10.4.0
+# PyMuPDF==1.24.11
+# pandas==2.2.2
+# numpy==1.26.4
+# faiss-cpu==1.8.0
+# langchain==0.3.7
+# langchain-community==0.3.7
+# ultralytics==8.3.170
+# scikit-learn==1.5.2
+# accelerate==0.34.2
+# transformers==4.46.3
+# python-pptx==1.0.2
+# pdfminer.six==20231228
+# opencv-python==4.10.0.84
+# pdf2image==1.17.0
+# sentencepiece==0.2.0
+# regex==2024.9.11
+# tqdm==4.66.5
+# loguru==0.7.2
+# pyyaml==6.0.2
+# rich==13.9.4
+# albumentations==1.4.20
+# 여기까진 기본 패키지
+
+joblib==1.5.2
+scipy==1.15.3
+lightgbm==4.6.0
