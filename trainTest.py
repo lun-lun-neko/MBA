@@ -1,8 +1,13 @@
-import os, argparse, joblib
+import os
+import argparse
+import joblib
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from collections import Counter
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+import lightgbm as lgb
 tqdm.pandas()
 
 
@@ -128,9 +133,9 @@ def preprocess_A(trainA):
 
     #Age, TestDate 변환
     df["AgeNum"] = df["Age"].map(convert_age)
-    # ym = df["TestDate"].map(split_testdate) #(연도, 월)로 반환
-    # df["Year"] = [y for y, m in ym] #ym을 y,m으로 분리 후 y를 사용
-    # df["Month"] = [m for y, m in ym]
+    ym = df["TestDate"].map(split_testdate) #(연도, 월)로 반환
+    df["Year"] = [y for y, m in ym] #ym을 y,m으로 분리 후 y를 사용
+    df["Month"] = [m for y, m in ym]
 
     feats = pd.DataFrame(index=df.index)
 
@@ -263,9 +268,9 @@ def preprocess_B(train_B):
     df = train_B.copy()
     print("Step 1: Age, TestDate 파생...")
     df["Age_num"] = df["Age"].map(convert_age)
-    # ym = df["TestDate"].map(split_testdate)
-    # df["Year"] = [y for y, m in ym]
-    # df["Month"] = [m for y, m in ym]
+    ym = df["TestDate"].map(split_testdate)
+    df["Year"] = [y for y, m in ym]
+    df["Month"] = [m for y, m in ym]
 
     feats = pd.DataFrame(index=df.index)
 
@@ -329,8 +334,10 @@ def preprocess_B(train_B):
 # =======================
 # 학습 때 사용한 파생 (그대로)
 # =======================
-def _has(df, cols):  return all(c in df.columns for c in cols)
-def _safe_div(a, b, eps=1e-6): return a / (b + eps)
+def _has(df, cols):  
+    return all(c in df.columns for c in cols)
+def _safe_div(a, b, eps=1e-6): 
+    return a / (b + eps)
 
 def add_features_A(df: pd.DataFrame) -> pd.DataFrame:
     feats = df.copy(); eps = 1e-6
@@ -433,103 +440,63 @@ def add_features_B(df: pd.DataFrame) -> pd.DataFrame:
     feats.replace([np.inf, -np.inf], np.nan, inplace=True)
     return feats
 
-# =======================
-# 정렬/보정 (모델이 학습 때 본 피처 순서로)
-# =======================
-DROP_COLS = ["Test_id","Test","PrimaryKey","Age","TestDate"]
+#A,B 전처리
+train_A_features = preprocess_A(trainA)
+train_B_features = preprocess_B(trainB)
+print("A:", train_A_features.shape, "B:", train_B_features.shape)
 
-def align_to_model(X_df, model):
-    # Booster / sklearn wrapper 호환적으로 feature name 추출
-    feat_names = []
-    try:
-        if hasattr(model, "feature_name") and callable(model.feature_name):
-            fn = model.feature_name()
-            if fn is not None:
-                feat_names = list(fn)
-    except Exception:
-        pass
-    if (not feat_names) and hasattr(model, "feature_name_"):
-        feat_names = list(getattr(model, "feature_name_", []) or [])
+#A,B 파생 피쳐 추가
+train_A_features = add_features_A(train_A_features)
+train_B_features = add_features_B(train_B_features)
+print("A+feat:", train_A_features.shape, "B+feat:", train_B_features.shape)
 
-    if not feat_names:
-        X = X_df.select_dtypes(include=[np.number]).copy()
-        return X.fillna(0.0)
+#전처리 데이터 저장
+train_A_features.to_csv("C:\\tsMVA\\MVA\\data\\prepro_A_ver1.csv", index=False)
+train_B_features.to_csv("C:\\tsMVA\\MVA\\data\\prepro_B_ver1.csv", index=False)
 
-    X = X_df.drop(columns=[c for c in DROP_COLS if c in X_df.columns], errors="ignore").copy()
-    for c in feat_names:
-        if c not in X.columns:
-            X[c] = 0.0
-    X = X[feat_names]
-    return X.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+#메타데이터 로드
+meta_A = trainMeta[trainMeta["Test"]=="A"].reset_index(drop=True)
+meta_B = trainMeta[trainMeta["Test"]=="B"].reset_index(drop=True)
 
-# =======================
-# 예측 래퍼 (Booster/Sklearn 공통)
-# =======================
-def _predict_proba_binary(model, X):
-    if hasattr(model, "predict_proba"):   # sklearn API
-        p = model.predict_proba(X)
-        return p[:,1] if p.ndim == 2 else p
-    # LightGBM Booster
-    return model.predict(X, num_iteration=getattr(model, "best_iteration", None))
+# X, y 분리
+X_A, y_A = train_A_features.drop(columns=["Test_id","Test","PrimaryKey","Age","TestDate"]), meta_A["Label"].values
+X_B, y_B = train_B_features.drop(columns=["Test_id","Test","PrimaryKey","Age","TestDate"]), meta_B["Label"].values
 
-def main():
-    # ---- 경로 변수 (필요에 따라 수정) ----
-    TEST_DIR  = "./data"      # test.csv, test/A.csv, test/B.csv, sample_submission.csv 위치
-    MODEL_DIR = "./model"     # lgbm_A.pkl, lgbm_B.pkl 위치
-    OUT_DIR   = "./output"
-    SAMPLE_SUB_PATH = os.path.join(TEST_DIR, "sample_submission.csv")
-    OUT_PATH  = os.path.join(OUT_DIR, "submission.csv")
+#train test val 분리
+X_train_A, X_val_A, y_train_A, y_val_A = train_test_split(X_A, y_A, test_size=0.2, stratify=y_A, random_state=42)
+X_train_B, X_val_B, y_train_B, y_val_B = train_test_split(X_B, y_B, test_size=0.2, stratify=y_B, random_state=42)
 
-    # ---- 모델 로드 ----
-    print("Load models...")
-    model_A = joblib.load(os.path.join(MODEL_DIR, "lgbmTest1_A.pkl"))
-    model_B = joblib.load(os.path.join(MODEL_DIR, "lgbmTest1_B.pkl"))
-    print(" OK.")
+#lgbm
+def train_and_eval(X_train, y_train, X_val, y_val, group_label):
+    model = lgb.LGBMClassifier(
+        objective="binary",
+        metric="auc",
+        n_estimators=3000,
+        learning_rate=0.05,
+        n_jobs=-1,
+        random_state=42,
+    )
 
-    # ---- 테스트 데이터 로드 ----
-    print("Load test data...")
-    meta = pd.read_csv(os.path.join(TEST_DIR, "test.csv"))
-    Araw = pd.read_csv(os.path.join(TEST_DIR, "test", "A.csv"))
-    Braw = pd.read_csv(os.path.join(TEST_DIR, "test", "B.csv"))
-    print(f" meta={len(meta)}, Araw={len(Araw)}, Braw={len(Braw)}")
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        eval_metric="auc",
+        callbacks=[lgb.early_stopping(200), lgb.log_evaluation(100)]
+    )
 
-    # ---- 매핑 ----
-    A_df = meta.loc[meta["Test"] == "A", ["Test_id", "Test"]].merge(Araw, on="Test_id", how="left")
-    B_df = meta.loc[meta["Test"] == "B", ["Test_id", "Test"]].merge(Braw, on="Test_id", how="left")
-    print(f" mapped: A={len(A_df)}, B={len(B_df)}")
+    val_pred = model.predict_proba(X_val)[:,1]
+    auc = roc_auc_score(y_val, val_pred)
+    print(f"[{group_label}] Validation AUC: {auc:.4f}")
+    return model
 
-    # ---- 전처리 → 파생 (학습과 동일) ----
-    A_feat = add_features_A(preprocess_A(A_df)) if len(A_df) else pd.DataFrame()
-    B_feat = add_features_B(preprocess_B(B_df)) if len(B_df) else pd.DataFrame()
+# lgbm 훈련
+model_A = train_and_eval(X_train_A, y_train_A, X_val_A, y_val_A, "A")
+model_B = train_and_eval(X_train_B, y_train_B, X_val_B, y_val_B, "B")
 
-    # ---- 피처 정렬/보정 ----
-    XA = align_to_model(A_feat, model_A) if len(A_feat) else pd.DataFrame()
-    XB = align_to_model(B_feat, model_B) if len(B_feat) else pd.DataFrame()
-    print(f" aligned: XA={XA.shape}, XB={XB.shape}")
+# 모델 저장 경로
+os.makedirs("./model", exist_ok=True)
 
-    # ---- 예측 ----
-    print("Inference Model...")
-    predA = _predict_proba_binary(model_A, XA) if len(XA) else np.array([])
-    predB = _predict_proba_binary(model_B, XB) if len(XB) else np.array([])
+joblib.dump(model_A, "./model/lgbmTest1_A.pkl")
+joblib.dump(model_B, "./model/lgbmTest1_B.pkl")
 
-    # ---- Test_id와 합치기 ----
-    subA = pd.DataFrame({"Test_id": A_df["Test_id"].values, "prob": predA})
-    subB = pd.DataFrame({"Test_id": B_df["Test_id"].values, "prob": predB})
-    probs = pd.concat([subA, subB], axis=0, ignore_index=True)
-
-    # ---- sample_submission 기반 결과 생성 ----
-    os.makedirs(OUT_DIR, exist_ok=True)
-    sample = pd.read_csv(SAMPLE_SUB_PATH)
-    out = sample.merge(probs, on="Test_id", how="left")
-    out["Label"] = out["prob"].astype(float).fillna(0.0)
-    out = out.drop(columns=["prob"])
-
-    out.to_csv(OUT_PATH, index=False)
-    print(f"✅ Saved: {OUT_PATH} (rows={len(out)})")
-
-if __name__ == "__main__":
-    main()
-
-preTainA = preprocess_A(trainA)
-preTainA
-preTainA.to_csv("preTiranA.csv", index=False)
+print("모델 저장 완료: ./model/lgbmTest1_A.pkl, ./model/lgbmTest1_B.pkl")
