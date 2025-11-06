@@ -440,10 +440,19 @@ def add_features_B(df: pd.DataFrame) -> pd.DataFrame:
     feats.replace([np.inf, -np.inf], np.nan, inplace=True)
     return feats
 
+dc = ["YearMonthIndex", "Year", "Month", "TestDate"]
+
+
+
 #A,B 전처리
 train_A_features = preprocess_A(trainA)
 train_B_features = preprocess_B(trainB)
 print("A:", train_A_features.shape, "B:", train_B_features.shape)
+
+train_A_features = train_A_features.drop(columns=[c for c in dc if c in train_A_features.columns], errors="ignore")
+train_B_features = train_B_features.drop(columns=[c for c in dc if c in train_B_features.columns], errors="ignore")
+train_A_features.columns
+train_B_features.columns
 
 #A,B 파생 피쳐 추가
 train_A_features = add_features_A(train_A_features)
@@ -451,8 +460,12 @@ train_B_features = add_features_B(train_B_features)
 print("A+feat:", train_A_features.shape, "B+feat:", train_B_features.shape)
 
 #전처리 데이터 저장
-train_A_features.to_csv("C:\\tsMVA\\MVA\\data\\prepro_A_ver1.csv", index=False)
-train_B_features.to_csv("C:\\tsMVA\\MVA\\data\\prepro_B_ver1.csv", index=False)
+train_A_features.to_csv("C:\\tsMVA\\MVA\\data\\prepro_A_ver2.csv", index=False)
+train_B_features.to_csv("C:\\tsMVA\\MVA\\data\\prepro_B_ver2.csv", index=False)
+"""
+ver1 test 전처리 [A] Validation AUC: 0.5044  [B] Validation AUC: 0.5082
+ver2 시계열 데이터 제거 [A] Validation AUC: 0.5108 [B] Validation AUC: 0.5089
+"""
 
 #메타데이터 로드
 meta_A = trainMeta[trainMeta["Test"]=="A"].reset_index(drop=True)
@@ -496,7 +509,7 @@ model_B = train_and_eval(X_train_B, y_train_B, X_val_B, y_val_B, "B")
 # 모델 저장 경로
 os.makedirs("./model", exist_ok=True)
 
-joblib.dump(model_A, "./model/lgbmTest1_A.pkl")
-joblib.dump(model_B, "./model/lgbmTest1_B.pkl")
+joblib.dump(model_A, "./model/lgbm_tdrop_A.pkl")
+joblib.dump(model_B, "./model/lgbm_tdrop_B.pkl")
 
 print("모델 저장 완료: ./model/lgbmTest1_A.pkl, ./model/lgbmTest1_B.pkl")

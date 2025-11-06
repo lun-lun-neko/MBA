@@ -436,7 +436,7 @@ def add_features_B(df: pd.DataFrame) -> pd.DataFrame:
 # =======================
 # 정렬/보정 (모델이 학습 때 본 피처 순서로)
 # =======================
-DROP_COLS = ["Test_id","Test","PrimaryKey","Age","TestDate"]
+DROP_COLS = ["Test_id","Test","PrimaryKey","Age","TestDate", "YearMonthIndex", "Year", "Month"]
 
 def align_to_model(X_df, model):
     # Booster / sklearn wrapper 호환적으로 feature name 추출
@@ -482,8 +482,8 @@ def main():
 
     # ---- 모델 로드 ----
     print("Load models...")
-    model_A = joblib.load(os.path.join(MODEL_DIR, "lgbmTest1_A.pkl"))
-    model_B = joblib.load(os.path.join(MODEL_DIR, "lgbmTest1_B.pkl"))
+    model_A = joblib.load(os.path.join(MODEL_DIR, "lgbm_tdrop_A.pkl"))
+    model_B = joblib.load(os.path.join(MODEL_DIR, "lgbm_tdrop_B.pkl"))
     print(" OK.")
 
     # ---- 테스트 데이터 로드 ----
@@ -506,6 +506,7 @@ def main():
     XA = align_to_model(A_feat, model_A) if len(A_feat) else pd.DataFrame()
     XB = align_to_model(B_feat, model_B) if len(B_feat) else pd.DataFrame()
     print(f" aligned: XA={XA.shape}, XB={XB.shape}")
+    print(XA.columns)
 
     # ---- 예측 ----
     print("Inference Model...")
@@ -530,6 +531,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-preTainA = preprocess_A(trainA)
-preTainA
-preTainA.to_csv("preTiranA.csv", index=False)
